@@ -23,7 +23,7 @@ def process_prompt(prompt, system):
 			{"role": "system", "content": system},
 			{"role": "user", "content": prompt},
 			],
-			max_tokens=250,
+			max_tokens=500,
 			n=1,
 			stop=None,
 			temperature=0.7,
@@ -46,54 +46,47 @@ class GameManager:
 		self.max_incorrect_accusations = 3
 
 	def generate_characters(self):
-		existing_characters_str = ""
-		
 		# Generate character descriptions
-		for _ in range(5):  # Generate 5 characters, adjust the number as needed
-			
-			# Randomly assign whether the character is a perpetrator
-			is_perpetrator = random.choice([True, False])
-			
-			system = "You are a masterful mystery story teller with a concise and witty writing style."
-			
-			prompt = (
-					"Generate a unique character for a text-based mystery game. "
-					"The character is an employee at a Museum where there has been a theft of an ancient artifact. "
-					"Include name, ethnicity, occupation at the museum, a very brief personal background, three motivations, three personality traits, and three speech styles. "				
-				)
-			
-			if is_perpetrator:
-				prompt += "This character IS a perpetrator of the theft. "
-			
-			else:
-				prompt += "This character IS NOT a perpetrator of the theft. "
-			
-			prompt += (
-					"Existing characters are: [" + existing_characters_str + "] "
-					"Format your reply as in the following example, with nothing else: "
-					"NATALIE JONES|BRITISH|HEAD OF SECURITY|Rough childhood, law enforcement to head of security, fiercely independent, doesn't trust easily|MONEY|REVENGE|THRILL SEEKING|CALCULATING|DECEPTIVE|ADVENTUROUS|ARTICULATE|EVASIVE|ABRUPT"
-			)
-			description = process_prompt(prompt, system)
 
+		num_characters = 5
+	
+		system = "You are a masterful mystery story teller with a concise and witty writing style."
+
+		prompt = (
+			f"Generate {num_characters} unique characters for a text-based mystery game. "
+			"The characters are employees at a Museum where there has been a theft of an ancient artifact. "
+			"For each character, include name, age, ethnicity, occupation at the museum, a very brief personal background, three motivations, three personality traits, and three speech styles. "
+			"Randomly assign whether each character is a perpetrator of the theft or not, indicated with a True/False at the end of the character string. "
+			"Format your reply as a list of characters, with each character separated by '; ', and nothing else: "
+			"NATALIE JONES|45|BRITISH|HEAD OF SECURITY|Rough childhood, law enforcement to head of security, fiercely independent, doesn't trust easily|MONEY|REVENGE|THRILL SEEKING|CALCULATING|DECEPTIVE|ADVENTUROUS|ARTICULATE|EVASIVE|ABRUPT|True"
+		)
+
+		descriptions = process_prompt(prompt, system)
+	
+		# Split the generated descriptions into individual character descriptions
+		character_descriptions = descriptions.split("; ")
+
+		for description in character_descriptions:
 			# Extract character attributes from the generated description
-			# You may need to adjust the parsing logic based on the structure of the generated descriptions
 			attributes = description.split("|")
 			name = attributes[0].strip()
-			ethnicity = attributes[1].strip()
-			occupation = attributes[2].strip()
-			background = attributes[3].strip()
-			motivations = attributes[4:7]  # Extract the three motivations
-			traits = attributes[7:10]
-			speech = attributes[10:]
-
-			character = Character(name, ethnicity, occupation, background, motivations, traits, speech, is_perpetrator)
+			age = attributes[1].strip()
+			ethnicity = attributes[2].strip()
+			occupation = attributes[3].strip()
+			background = attributes[4].strip()
+			motivations = attributes[5:8]  # Extract the three motivations
+			traits = attributes[9:11]
+			speech = attributes[11:14]
+			is_perpetrator = True if attributes[14].strip().lower() == 'true' else False
+	
+			character = Character(name, age, ethnicity, occupation, background, motivations, traits, speech, is_perpetrator)
 			self.characters.append(character)
-			existing_characters_str += f"{character.name}, a {occupation}; "
 
 		# Ensure at least one perpetrator exists in the game
 		if not any(character.is_perpetrator for character in self.characters):
 			random.choice(self.characters).is_perpetrator = True
-			
+
+		
 	def start_game(self):
 		
 		print("Gathering suspects...")
@@ -178,6 +171,7 @@ class GameManager:
 class Character:
 	def __init__(self, name, ethnicity, occupation, background, motivations, traits, speech, is_perpetrator):
 		self.name = name
+		self.age = age
 		self.ethnicity = ethnicity
 		self.occupation = occupation
 		self.background = background
@@ -186,9 +180,12 @@ class Character:
 		self.speech = speech
 		self.is_perpetrator = is_perpetrator
 		self.dialogue_manager = DialogueManager()
+		self.memory = []
 		
 	def ask_question(self, question, story):
 		response = self.dialogue_manager.generate_dialogue(self, question, story)
+		compressed_dialogue = self.dialogue_manager.compress_text(question, response)
+		self.memory.append(compressed_dialogue)
 		return response
 
 class DialogueManager:
@@ -198,11 +195,12 @@ class DialogueManager:
 	def generate_dialogue(self, character, question, story):
 	
 		system = (
-		f"You are {character.name}, a {character.ethnicity} {character.occupation} at the Museum. "
+		f"You are {character.name}, a {character.age} year old {character.ethnicity} {character.occupation} at the Museum. "
 		f"Your motivations are: {', '.join(character.motivations)}. "
 		f"Your traits are: {', '.join(character.traits)}. "
 		f"Your experiences related to the theft are: {' '.join(character.experiences)} "
-		f"Your speech style is {', '.join(character.speech)}."
+		f"Your compressed memory of the conversation is: {character.memory}. "
+		f"Your speech style is {', '.join(character.speech)}. "
 			)
 		if character.is_perpetrator:
 			system +=(
@@ -210,7 +208,7 @@ class DialogueManager:
 			)
 		else:
 			system +=(
-			f"You did not commit the theft, and do not know for sure who did, though you may have your suspicions. You are willing to help the investigation however possible. "
+			f"You did not commit the theft, and do not know for sure who did, though you may have your suspicions. "
 			)
 		prompt = (
 			f"Using the following compressed story as context:\n"
@@ -222,10 +220,19 @@ class DialogueManager:
 		answer = process_prompt(prompt, system)
 		return answer
 		
+	def compress_text(self, question, answer):
+		dialogue = f"Question: {question}\nResponse: {answer}"
+		system = "You are a text compression engine that compresses text in a way that minimizes tokens and such that fresh instances of GPT can reconstruct the orignial meaning of the text as close as possible to the original intention. This is for GPT. It does not need to be human readable or understandable. Abuse of language mixing, abbreviations, symbols (unicode and emoji), or any other encodings or internal representations is all permissible, as long as it, if pasted in a new inference cycle, will yield near-identical results as the original text."
+		prompt = f"Compress the following text:\n" + dialogue
+		compressed_text = process_prompt(prompt, system)
+		return compressed_text
+		
+		
+		
 class StoryGenerator:
 	def __init__(self, characters):
 		self.characters = characters
-
+		
 	def generate_story(self):
 
 		# Prepare the context for the story generation
@@ -305,4 +312,3 @@ def main():
 
 if __name__ == "__main__":
 	main()
-		
